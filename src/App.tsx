@@ -3,8 +3,8 @@ import {Button} from '@/components/ui/Button'
 import {Card} from '@/components/ui/Card'
 import {type ServiceTime, type Session, fetchRecord, fetchSession, getToken, saveRecord} from '@/lib/api'
 import {addDays, currentWeekStart, dayHeading, formatTime, resolveServiceDate, weekLabel} from '@/lib/date'
-import {useMutation, useQuery} from '@tanstack/react-query'
-import {useEffect, useMemo, useState} from 'react'
+import {useMutation, useQueries, useQuery, useQueryClient} from '@tanstack/react-query'
+import {useEffect, useMemo, useRef, useState} from 'react'
 
 type Selected = {st: ServiceTime; date: string}
 type Field = 'attendance' | 'streaming'
@@ -47,6 +47,7 @@ export default function App() {
         <EntryScreen token={token} selected={selected} onBack={() => setSelected(null)} />
       ) : (
         <PickScreen
+          token={token}
           session={session}
           weekStart={weekStart}
           onWeek={setWeekStart}
@@ -74,11 +75,13 @@ function RecordingHeader({name}: {name: string}) {
 }
 
 function PickScreen({
+  token,
   session,
   weekStart,
   onWeek,
   onPick,
 }: {
+  token: string
   session: Session
   weekStart: string
   onWeek: (w: string) => void
@@ -94,6 +97,19 @@ function PickScreen({
     }
     return [...byDay.entries()].sort((a, b) => a[0] - b[0])
   }, [session])
+
+  // Existing totals per service time for the selected week (shared cache with EntryScreen).
+  const results = useQueries({
+    queries: session.serviceTimes.map((st) => {
+      const d = resolveServiceDate(weekStart, st.dayOfWeek)
+      return {queryKey: ['record', token, st.id, d], queryFn: () => fetchRecord(token, st.id, d)}
+    }),
+  })
+  const totalById = new Map<number, number | null>()
+  session.serviceTimes.forEach((st, i) => {
+    const r = results[i]?.data
+    totalById.set(st.id, r && (r.attendance !== null || r.streaming !== null) ? (r.attendance ?? 0) + (r.streaming ?? 0) : null)
+  })
 
   return (
     <>
@@ -118,16 +134,24 @@ function PickScreen({
             {dayHeading(resolveServiceDate(weekStart, day))}
           </p>
           <Card className="!p-0 divide-y overflow-hidden">
-            {list.map((st) => (
-              <button
-                key={st.id}
-                onClick={() => onPick(st)}
-                className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-muted active:bg-muted/80 cursor-pointer"
-              >
-                <span className="text-lg font-medium">{formatTime(st.time)}</span>
-                <span className="text-muted-foreground text-xl">›</span>
-              </button>
-            ))}
+            {list.map((st) => {
+              const total = totalById.get(st.id)
+              return (
+                <button
+                  key={st.id}
+                  onClick={() => onPick(st)}
+                  className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-muted active:bg-muted/80 cursor-pointer"
+                >
+                  <span className="text-lg font-medium">{formatTime(st.time)}</span>
+                  <span className="flex items-center gap-3">
+                    {total != null && (
+                      <span className="text-base font-semibold tabular-nums text-muted-foreground">{total}</span>
+                    )}
+                    <span className="text-muted-foreground text-xl">›</span>
+                  </span>
+                </button>
+              )
+            })}
           </Card>
         </div>
       ))}
@@ -156,13 +180,40 @@ function EntryScreen({token, selected, onBack}: {token: string; selected: Select
     }
   }, [existing, loaded])
 
+  const qc = useQueryClient()
   const mut = useMutation({
-    mutationFn: () => saveRecord(token, {serviceTimeId: st.id, date, attendance: att, streaming: strm}),
+    mutationFn: (vals: {a: number | null; s: number | null}) =>
+      saveRecord(token, {serviceTimeId: st.id, date, attendance: vals.a, streaming: vals.s}),
+    onSuccess: (_res, vals) => {
+      // Keep the shared record cache fresh so the pick-list totals reflect the save.
+      qc.setQueryData(['record', token, st.id, date], {serviceTimeId: st.id, date, attendance: vals.a, streaming: vals.s})
+    },
   })
 
-  const canSave = att !== null || strm !== null
+  // Debounced auto-save on every change (no Save button).
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    },
+    [],
+  )
+  const scheduleSave = (a: number | null, s: number | null) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    if (a === null && s === null) return // nothing to save
+    saveTimer.current = setTimeout(() => mut.mutate({a, s}), 600)
+  }
+  const applyAtt = (n: number | null) => {
+    setAtt(n)
+    scheduleSave(n, strm)
+  }
+  const applyStrm = (n: number | null) => {
+    setStrm(n)
+    scheduleSave(att, n)
+  }
+
   const current = field === 'attendance' ? att : strm
-  const setCurrent = (n: number) => (field === 'attendance' ? setAtt(n) : setStrm(n))
+  const setCurrent = (n: number) => (field === 'attendance' ? applyAtt(n) : applyStrm(n))
 
   return (
     <>
@@ -206,18 +257,20 @@ function EntryScreen({token, selected, onBack}: {token: string; selected: Select
             </Card>
           ) : (
             <Card className="space-y-4">
-              <NumberInput label="Attendance" value={att} onChange={setAtt} />
-              <NumberInput label="Streaming" value={strm} onChange={setStrm} />
+              <NumberInput label="Attendance" value={att} onChange={applyAtt} />
+              <NumberInput label="Streaming" value={strm} onChange={applyStrm} />
             </Card>
           )}
 
-          <Button size="lg" disabled={!canSave || mut.isPending} onClick={() => mut.mutate()}>
-            {mut.isPending ? 'Saving…' : mut.isSuccess ? '✓ Saved' : 'Save'}
-          </Button>
-          {mut.isSuccess && <p className="text-center text-green-600 font-medium">Saved</p>}
-          {mut.error && (
-            <p className="text-center text-destructive">{mut.error instanceof Error ? mut.error.message : 'Save failed'}</p>
-          )}
+          <div className="text-center text-sm font-medium h-5">
+            {mut.isError ? (
+              <span className="text-destructive">{mut.error instanceof Error ? mut.error.message : 'Save failed'}</span>
+            ) : mut.isPending ? (
+              <span className="text-muted-foreground">Saving…</span>
+            ) : mut.isSuccess ? (
+              <span className="text-green-600">✓ Saved automatically</span>
+            ) : null}
+          </div>
         </>
       )}
     </>
