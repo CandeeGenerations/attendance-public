@@ -5,6 +5,18 @@
 [build.environment]
   NODE_VERSION = "24"
 
+# Netlify serves a matching static file before applying a non-forced rewrite, so the worker and
+# its precache manifest resolve to the real files rather than index.html.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/workbox-*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 [[redirects]]
   from = "/r/*"
   to = "/index.html"

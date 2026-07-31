@@ -1,10 +1,16 @@
 const API_BASE = (import.meta.env.VITE_CGEN_API_BASE ?? '').replace(/\/$/, '')
 const BASE = `${API_BASE}/attendance-public`
 
-// Per-recorder token from the path: /r/<token>
-export function getToken(): string {
-  const m = window.location.pathname.match(/\/r\/([^/?#]+)/)
-  return m ? decodeURIComponent(m[1]) : ''
+// Thrown only when the server actually answered. A bare TypeError from `fetch` means we never
+// reached it — the outbox uses that distinction to tell "offline, retry" from "rejected, don't".
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -14,7 +20,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.error || `Request failed: ${res.status}`)
+    throw new ApiError(body.error || `Request failed: ${res.status}`, res.status)
   }
   return res.json()
 }

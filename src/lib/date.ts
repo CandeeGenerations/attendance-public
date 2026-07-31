@@ -31,10 +31,25 @@ export function resolveServiceDate(weekStart: string, dayOfWeek: number): string
   return addDays(weekStart, dayOfWeek)
 }
 
-// "Sunday 7/19/2026"
+// "7/19/2026" — the week always starts on a Sunday, so naming the day adds nothing.
 export function weekLabel(weekStart: string): string {
   const [y, m, d] = weekStart.split('-').map(Number)
-  return `Sunday ${m}/${d}/${y}`
+  return `${m}/${d}/${y}`
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+// Guards the `:weekStart` route param: a real calendar date that actually lands on a Sunday.
+export function isWeekStart(value: string | undefined): value is string {
+  if (!value || !ISO_DATE_RE.test(value)) return false
+  const [y, m, d] = value.split('-').map(Number)
+  const parsed = new Date(Date.UTC(y, m - 1, d))
+  return (
+    parsed.getUTCFullYear() === y &&
+    parsed.getUTCMonth() === m - 1 &&
+    parsed.getUTCDate() === d &&
+    parsed.getUTCDay() === 0
+  )
 }
 
 // "SUNDAY, JUL 19"

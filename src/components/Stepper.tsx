@@ -1,4 +1,5 @@
 import {Button} from '@/components/ui/Button'
+import {haptic} from '@/lib/haptics'
 
 interface Props {
   value: number
@@ -6,15 +7,21 @@ interface Props {
   label: string
 }
 
-// Big tap-to-count stepper for live tallying.
+// Big tap-to-count stepper for live tallying. Each press fires a short haptic so counting can be
+// eyes-off — the two directions get different durations so they're distinguishable by feel.
 export function Stepper({value, onChange, label}: Props) {
+  const step = (next: number, ms: number) => {
+    haptic(ms)
+    onChange(next)
+  }
+
   return (
     <div className="flex flex-col items-center gap-4">
       <p className="text-sm uppercase tracking-wide text-muted-foreground">{label}</p>
       <div className="flex items-center justify-center gap-6">
         <Button
           variant="outline"
-          onClick={() => onChange(Math.max(0, value - 1))}
+          onClick={() => step(Math.max(0, value - 1), 22)}
           disabled={value <= 0}
           className="!w-20 !h-20 !rounded-full text-4xl"
           aria-label="decrease"
@@ -26,7 +33,7 @@ export function Stepper({value, onChange, label}: Props) {
         </div>
         <Button
           variant="outline"
-          onClick={() => onChange(value + 1)}
+          onClick={() => step(value + 1, 10)}
           className="!w-20 !h-20 !rounded-full text-4xl"
           aria-label="increase"
         >
