@@ -63,7 +63,6 @@ export function RecorderLayout() {
   if (error) {
     return (
       <Shell>
-        <SyncStatusBar />
         <Card className="text-center">
           <h1 className="text-xl font-semibold mb-2">Can’t reach the server</h1>
           <p className="text-muted-foreground">
@@ -71,6 +70,7 @@ export function RecorderLayout() {
             entered are saved on this device.
           </p>
         </Card>
+        <SyncStatusBar />
       </Shell>
     )
   }
@@ -88,10 +88,11 @@ export function RecorderLayout() {
       <p className="text-sm text-muted-foreground px-1">
         Recording as <span className="font-semibold text-foreground">{session.recorderName}</span>
       </p>
-      <SyncStatusBar />
       <RecorderContext value={{token, session}}>
         <Outlet />
       </RecorderContext>
+      {/* Last on the page: appearing mid-count must never reflow the tally buttons. */}
+      <SyncStatusBar />
     </Shell>
   )
 }
