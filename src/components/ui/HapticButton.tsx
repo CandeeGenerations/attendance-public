@@ -1,5 +1,5 @@
 import {buttonClasses} from '@/components/ui/Button'
-import {haptic} from '@/lib/haptics'
+import {type HapticShape, haptic} from '@/lib/haptics'
 import {cn} from '@/lib/utils'
 
 interface Props {
@@ -7,8 +7,8 @@ interface Props {
   label: string
   disabled?: boolean
   className?: string
-  /** Vibration duration for browsers that support the Vibration API (Android). */
-  vibrateMs?: number
+  /** Which vibration shape to play on Android; iOS gets its one fixed system tick regardless. */
+  shape?: HapticShape
   children: React.ReactNode
 }
 
@@ -22,7 +22,7 @@ interface Props {
 //     visible circle, otherwise the square switch swallows taps outside the button
 // The checkbox's checked state is deliberately ignored; it exists purely as a haptic actuator, so
 // it stays uncontrolled and is free to toggle on every press.
-export function HapticButton({onPress, label, disabled = false, className, vibrateMs = 10, children}: Props) {
+export function HapticButton({onPress, label, disabled = false, className, shape = 'tick', children}: Props) {
   return (
     <span
       className={cn(
@@ -37,10 +37,11 @@ export function HapticButton({onPress, label, disabled = false, className, vibra
         {...{switch: ''}}
         aria-label={label}
         disabled={disabled}
-        onChange={() => {
-          haptic(vibrateMs)
-          onPress()
-        }}
+        // Buzz on finger-down, where iOS already plays its tick, so both platforms answer the tap
+        // at the same instant. It also keeps the call in the clearest possible user gesture: a
+        // vibration requested from anywhere Chrome doesn't count as user activation is dropped.
+        onPointerDown={() => haptic(shape)}
+        onChange={onPress}
         className="absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0 [clip-path:inset(0_round_9999px)] disabled:cursor-not-allowed"
       />
     </span>

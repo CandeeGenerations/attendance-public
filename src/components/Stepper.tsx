@@ -7,8 +7,8 @@ interface Props {
 }
 
 // Big tap-to-count stepper for live tallying. Both keys are HapticButtons so counting can be
-// eyes-off; the two directions use different vibration lengths to be distinguishable by feel
-// (Android only — iOS gives one fixed system tick).
+// eyes-off; on Android the two directions buzz in different shapes — one tick up, two down — so
+// they're distinguishable without looking (iOS gives one fixed system tick either way).
 export function Stepper({value, onChange, label}: Props) {
   return (
     <div className="flex flex-col items-center gap-4">
@@ -17,7 +17,7 @@ export function Stepper({value, onChange, label}: Props) {
         <HapticButton
           label="decrease"
           disabled={value <= 0}
-          vibrateMs={22}
+          shape="double"
           onPress={() => onChange(Math.max(0, value - 1))}
           className="!w-20 !h-20 !rounded-full text-4xl"
         >
@@ -28,7 +28,7 @@ export function Stepper({value, onChange, label}: Props) {
         </div>
         <HapticButton
           label="increase"
-          vibrateMs={10}
+          shape="tick"
           onPress={() => onChange(value + 1)}
           className="!w-20 !h-20 !rounded-full text-4xl"
         >
