@@ -15,8 +15,11 @@ export function weekStartSunday(d: Date): Date {
   return x
 }
 
+// "Today" is the device's calendar day, not UTC's: at a Saturday-evening service in the Americas
+// it is already Sunday in UTC, and the usher must not be shown next week.
 export function currentWeekStart(): string {
-  return iso(weekStartSunday(new Date()))
+  const now = new Date()
+  return iso(weekStartSunday(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))))
 }
 
 export function addDays(isoDate: string, days: number): string {

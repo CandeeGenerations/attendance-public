@@ -8,6 +8,7 @@ import {useQueries} from '@tanstack/react-query'
 import {useMemo} from 'react'
 import {Link, Navigate, useParams} from 'react-router-dom'
 
+import {useColdStartWeek} from './cold-start'
 import {useRecorder} from './RecorderLayout'
 import {currentWeekRoute, entryRoute, weekRoute} from './routes'
 
@@ -15,6 +16,7 @@ export function PickScreen() {
   const {token, session} = useRecorder()
   const {weekStart} = useParams()
   const week = isWeekStart(weekStart) ? weekStart : null
+  const snapToWeek = useColdStartWeek(week)
   const outbox = useOutbox()
 
   // Group by dayOfWeek, preserving sort order within a day.
@@ -30,15 +32,19 @@ export function PickScreen() {
 
   // Existing totals per service time for this week (shared cache with EntryScreen).
   const results = useQueries({
-    queries: week
-      ? session.serviceTimes.map((st) => {
-          const date = resolveServiceDate(week, st.dayOfWeek)
-          return {queryKey: ['record', token, st.id, date], queryFn: () => fetchRecord(token, st.id, date)}
-        })
-      : [],
+    // Nothing to fetch for a week we're about to redirect away from.
+    queries:
+      week && !snapToWeek
+        ? session.serviceTimes.map((st) => {
+            const date = resolveServiceDate(week, st.dayOfWeek)
+            return {queryKey: ['record', token, st.id, date], queryFn: () => fetchRecord(token, st.id, date)}
+          })
+        : [],
   })
 
   if (!week) return <Navigate to={currentWeekRoute(token)} replace />
+  // A bookmark or a restored tab opens on a week that has since passed; a fresh load starts here.
+  if (snapToWeek) return <Navigate to={weekRoute(token, snapToWeek)} replace />
 
   const totalById = new Map<number, number | null>()
   session.serviceTimes.forEach((st, i) => {

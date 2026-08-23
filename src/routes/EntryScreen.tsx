@@ -11,6 +11,7 @@ import {useQuery} from '@tanstack/react-query'
 import {useEffect, useRef, useState} from 'react'
 import {Link, Navigate, useParams} from 'react-router-dom'
 
+import {isInstalledApp, useColdStart} from './cold-start'
 import {useRecorder} from './RecorderLayout'
 import {currentWeekRoute, weekRoute} from './routes'
 
@@ -23,13 +24,18 @@ export function EntryScreen() {
   const st = session.serviceTimes.find((s) => String(s.id) === serviceTimeId)
   const date = week && st ? resolveServiceDate(week, st.dayOfWeek) : null
 
+  // In a browser a link straight to a service keeps its week — it still spends the cold start, so
+  // stepping back to the list doesn't then bounce the usher forward. The installed app has no
+  // shared link to honour: it opens on the week it was added from, which is the bug.
+  const staleAppLaunch = useColdStart() && isInstalledApp()
+
   const online = useOnline()
   const outbox = useOutbox()
 
   const {data: server, isLoading} = useQuery({
     queryKey: ['record', token, st?.id, date],
     queryFn: () => fetchRecord(token, st!.id, date!),
-    enabled: Boolean(st && date),
+    enabled: Boolean(st && date) && !staleAppLaunch,
   })
 
   // The chosen input style is a property of the device, not the service — a desk volunteer on a
@@ -46,7 +52,7 @@ export function EntryScreen() {
     edited.current = false
   }, [st?.id, date])
 
-  if (!week) return <Navigate to={currentWeekRoute(token)} replace />
+  if (!week || staleAppLaunch) return <Navigate to={currentWeekRoute(token)} replace />
   if (!st || !date) return <Navigate to={weekRoute(token, week)} replace />
 
   const {attendance, streaming, pending} = resolveRecord(outbox, token, st.id, date, server)
