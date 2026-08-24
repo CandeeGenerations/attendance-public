@@ -22,6 +22,12 @@ export function currentWeekStart(): string {
   return iso(weekStartSunday(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))))
 }
 
+// The Sunday that starts the week containing a plain calendar date.
+export function weekStartOf(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  return iso(weekStartSunday(new Date(Date.UTC(y, m - 1, d))))
+}
+
 export function addDays(isoDate: string, days: number): string {
   const [y, m, d] = isoDate.split('-').map(Number)
   const x = new Date(Date.UTC(y, m - 1, d))

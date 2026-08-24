@@ -1,13 +1,12 @@
 import {Stepper} from '@/components/Stepper'
 import {Button} from '@/components/ui/Button'
 import {Card} from '@/components/ui/Card'
-import {fetchRecord} from '@/lib/api'
 import {dayHeading, formatTime, isWeekStart, resolveServiceDate} from '@/lib/date'
-import {queueRecord, resolveRecord} from '@/lib/outbox'
+import {queueCorrection, queueTally, resolveRecord} from '@/lib/outbox'
 import {type InputMode, readInputMode, writeInputMode} from '@/lib/prefs'
 import {useOnline} from '@/lib/use-online'
 import {useOutbox} from '@/lib/use-outbox'
-import {useQuery} from '@tanstack/react-query'
+import {selectWeekRecord, useWeek} from '@/lib/use-week'
 import {useEffect, useRef, useState} from 'react'
 import {Link, Navigate, useParams} from 'react-router-dom'
 
@@ -32,11 +31,10 @@ export function EntryScreen() {
   const online = useOnline()
   const outbox = useOutbox()
 
-  const {data: server, isLoading} = useQuery({
-    queryKey: ['record', token, st?.id, date],
-    queryFn: () => fetchRecord(token, st!.id, date!),
-    enabled: Boolean(st && date) && !staleAppLaunch,
-  })
+  // Same query the pick list polls, so this screen picks up another device's count within a few
+  // seconds without a request of its own.
+  const {data: weekData, isLoading} = useWeek(token, staleAppLaunch ? null : week)
+  const server = st ? selectWeekRecord(weekData, st.id) : undefined
 
   // The chosen input style is a property of the device, not the service — a desk volunteer on a
   // laptop keeps "Type", an usher on a phone keeps "Tally", across visits.
@@ -52,20 +50,35 @@ export function EntryScreen() {
     edited.current = false
   }, [st?.id, date])
 
+  const remote = useRemoteChange(server, st?.id, date)
+
   if (!week || staleAppLaunch) return <Navigate to={currentWeekRoute(token)} replace />
   if (!st || !date) return <Navigate to={weekRoute(token, week)} replace />
 
   const {attendance, streaming, pending} = resolveRecord(outbox, token, st.id, date, server)
 
-  const apply = (next: {attendance: number | null; streaming: number | null}) => {
+  // Typed values are Corrections — they replace both fields outright.
+  const correct = (next: {attendance: number | null; streaming: number | null}) => {
     edited.current = true
-    queueRecord({token, serviceTimeId: st.id, date, ...next})
+    remote.mine(next)
+    queueCorrection({token, serviceTimeId: st.id, date}, next)
   }
-  const applyAttendance = (n: number | null) => apply({attendance: n, streaming})
-  const applyStreaming = (n: number | null) => apply({attendance, streaming: n})
+  const correctAttendance = (n: number | null) => correct({attendance: n, streaming})
+  const correctStreaming = (n: number | null) => correct({attendance, streaming: n})
+
+  // A tally key is an adjustment, so a count entered here and one entered on another device add up
+  // instead of overwriting each other (ADR-0027).
+  const tally = (delta: number) => {
+    edited.current = true
+    const next =
+      field === 'attendance'
+        ? {attendance: Math.max(0, (attendance ?? 0) + delta), streaming}
+        : {attendance, streaming: Math.max(0, (streaming ?? 0) + delta)}
+    remote.mine(next)
+    queueTally({token, serviceTimeId: st.id, date}, field, delta)
+  }
 
   const current = field === 'attendance' ? attendance : streaming
-  const setCurrent = (n: number) => (field === 'attendance' ? applyAttendance(n) : applyStreaming(n))
 
   return (
     <>
@@ -103,7 +116,7 @@ export function EntryScreen() {
               </div>
               <Stepper
                 value={current ?? 0}
-                onChange={setCurrent}
+                onAdjust={tally}
                 label={field === 'attendance' ? 'Attendance' : 'Streaming'}
               />
               <div className="flex justify-around text-center pt-2 border-t">
@@ -117,9 +130,16 @@ export function EntryScreen() {
             </Card>
           ) : (
             <Card className="space-y-4">
-              <NumberInput label="Attendance" value={attendance} onChange={applyAttendance} />
-              <NumberInput label="Streaming" value={streaming} onChange={applyStreaming} />
+              <NumberInput label="Attendance" value={attendance} onChange={correctAttendance} />
+              <NumberInput label="Streaming" value={streaming} onChange={correctStreaming} />
             </Card>
+          )}
+
+          {/* A digit changing on its own is how an usher loses count — say where it came from. */}
+          {remote.changed && (
+            <p aria-live="polite" className="text-center text-sm text-muted-foreground">
+              Updated elsewhere
+            </p>
           )}
 
           <SaveStatus pending={pending} syncing={outbox.syncing} online={online} edited={edited.current} />
@@ -127,6 +147,51 @@ export function EntryScreen() {
       )}
     </>
   )
+}
+
+// Flags a server value that moved without this device moving it — another phone, the laptop, or an
+// admin correction. Own writes are remembered so an echo of one never reads as someone else's.
+function useRemoteChange(
+  server: {attendance: number | null; streaming: number | null} | undefined,
+  serviceTimeId: number | undefined,
+  date: string | null,
+) {
+  const [changed, setChanged] = useState(false)
+  const seen = useRef<{attendance: number | null; streaming: number | null} | null>(null)
+  const own = useRef<{attendance: number | null; streaming: number | null} | null>(null)
+
+  // A different record is a different conversation: forget both histories.
+  useEffect(() => {
+    seen.current = null
+    own.current = null
+    setChanged(false)
+  }, [serviceTimeId, date])
+
+  const attendance = server?.attendance ?? null
+  const streaming = server?.streaming ?? null
+  useEffect(() => {
+    if (!server) return
+    const previous = seen.current
+    seen.current = {attendance, streaming}
+    if (!previous) return
+    if (previous.attendance === attendance && previous.streaming === streaming) return
+    if (own.current?.attendance === attendance && own.current?.streaming === streaming) return
+    setChanged(true)
+  }, [server, attendance, streaming])
+
+  // Long enough to read mid-count, short enough not to linger over the next tap.
+  useEffect(() => {
+    if (!changed) return
+    const timer = setTimeout(() => setChanged(false), 4_000)
+    return () => clearTimeout(timer)
+  }, [changed])
+
+  return {
+    changed,
+    mine: (value: {attendance: number | null; streaming: number | null}) => {
+      own.current = value
+    },
+  }
 }
 
 function SaveStatus({

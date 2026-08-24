@@ -45,14 +45,36 @@ export interface RecordValue {
   streaming: number | null
 }
 
+export interface WeekRecord extends RecordValue {
+  /** Server time of the newest edit, or null if nothing has been entered. */
+  latestEnteredAt: string | null
+}
+
+export interface Week {
+  weekStart: string
+  records: WeekRecord[]
+}
+
 const enc = encodeURIComponent
 
 export const fetchSession = (token: string) => request<Session>(`/${enc(token)}`)
 
-export const fetchRecord = (token: string, serviceTimeId: number, date: string) =>
-  request<RecordValue>(`/${enc(token)}/record/${serviceTimeId}/${date}`)
+// Every record for a week in one request — the poll that keeps a second device current.
+export const fetchWeek = (token: string, weekStart: string) => request<Week>(`/${enc(token)}/week/${enc(weekStart)}`)
 
-export const saveRecord = (
+// A Correction: typed values that replace both fields.
+export const saveCorrection = (
   token: string,
   data: {serviceTimeId: number; date: string; attendance: number | null; streaming: number | null},
 ) => request<RecordValue & {saved: true}>(`/${enc(token)}/record`, {method: 'POST', body: JSON.stringify(data)})
+
+// A Tally: an adjustment to one field, carrying the moment it was tapped so the server can tell it
+// from a count that has since been declared outright (ADR-0027).
+export const saveTally = (
+  token: string,
+  data: {serviceTimeId: number; date: string; field: 'attendance' | 'streaming'; adjustment: number; tappedAt: string},
+) =>
+  request<RecordValue & {applied: boolean; saved: true}>(`/${enc(token)}/record`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })

@@ -1,10 +1,9 @@
 import {buttonClasses} from '@/components/ui/Button'
 import {Card} from '@/components/ui/Card'
-import {fetchRecord} from '@/lib/api'
 import {addDays, dayHeading, formatTime, isWeekStart, resolveServiceDate, weekLabel} from '@/lib/date'
 import {resolveRecord} from '@/lib/outbox'
 import {useOutbox} from '@/lib/use-outbox'
-import {useQueries} from '@tanstack/react-query'
+import {selectWeekRecord, useWeek} from '@/lib/use-week'
 import {useMemo} from 'react'
 import {Link, Navigate, useParams} from 'react-router-dom'
 
@@ -30,31 +29,24 @@ export function PickScreen() {
     return [...byDay.entries()].sort((a, b) => a[0] - b[0])
   }, [session])
 
-  // Existing totals per service time for this week (shared cache with EntryScreen).
-  const results = useQueries({
-    // Nothing to fetch for a week we're about to redirect away from.
-    queries:
-      week && !snapToWeek
-        ? session.serviceTimes.map((st) => {
-            const date = resolveServiceDate(week, st.dayOfWeek)
-            return {queryKey: ['record', token, st.id, date], queryFn: () => fetchRecord(token, st.id, date)}
-          })
-        : [],
-  })
+  // One request for the whole week, polled while this screen is visible — the same query
+  // EntryScreen reads, so the two can't disagree. Nothing to fetch for a week we're about to
+  // redirect away from.
+  const {data: weekData} = useWeek(token, snapToWeek ? null : week)
 
   if (!week) return <Navigate to={currentWeekRoute(token)} replace />
   // A bookmark or a restored tab opens on a week that has since passed; a fresh load starts here.
   if (snapToWeek) return <Navigate to={weekRoute(token, snapToWeek)} replace />
 
   const totalById = new Map<number, number | null>()
-  session.serviceTimes.forEach((st, i) => {
+  session.serviceTimes.forEach((st) => {
     // Queued local edits outrank server values, so an offline tally still shows in this list.
     const {attendance, streaming} = resolveRecord(
       outbox,
       token,
       st.id,
       resolveServiceDate(week, st.dayOfWeek),
-      results[i]?.data,
+      selectWeekRecord(weekData, st.id),
     )
     totalById.set(st.id, attendance === null && streaming === null ? null : (attendance ?? 0) + (streaming ?? 0))
   })
