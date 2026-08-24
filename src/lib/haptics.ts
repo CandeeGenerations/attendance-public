@@ -6,13 +6,16 @@
 // switch control. So iOS is handled structurally by HapticButton (which puts an invisible real
 // switch under the thumb) rather than from script here.
 
-// Two directions that must be distinguishable by feel alone. Length is the wrong axis for that:
-// phones with a linear resonant actuator need ~20ms just to spin up, so a 10ms pulse is often
-// silent and a 22ms one is a faint blur — the difference lands as "the buttons don't buzz". Shape
-// survives any motor: one tick versus two, with a gap long enough to read as separate taps.
+// Two directions that must be distinguishable by feel alone, on hardware that varies wildly.
+//
+// Shape carries the distinction — one buzz versus two, with a gap long enough to read as separate
+// — because length can't: a phone with a weak or turned-down actuator renders nothing at all below
+// some floor. One tested Android felt a 200ms buzz and nothing at 30ms, so these are far longer
+// than they need to be on a phone that would have managed 30. The cost of overshooting is a buzz
+// that feels slightly heavy; the cost of undershooting is a button that feels dead.
 const PATTERNS = {
-  tick: [30],
-  double: [22, 60, 22],
+  tick: [80],
+  double: [60, 90, 60],
 } as const
 
 export type HapticShape = keyof typeof PATTERNS
