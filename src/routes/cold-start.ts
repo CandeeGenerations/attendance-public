@@ -6,14 +6,19 @@ import {useEffect, useState} from 'react'
 // to the current week; every navigation after that (the ‹ › week links) browses freely.
 let coldStart = true
 
-// True only for the screen that a fresh page load lands on. Every recorder screen calls this so
-// the cold start is spent by whichever one mounts first, not by the pick screen alone.
+// True for the first render of the screen a fresh page load lands on, and false forever after.
+//
+// It has to go false without unmounting: React keeps one PickScreen mounted across every :weekStart
+// the ‹ › links visit, so a value captured only at mount would keep claiming to be a cold start and
+// snap every week the usher picked straight back to this one. Same for EntryScreen across services.
 export function useColdStart(): boolean {
   const [cold] = useState(() => coldStart)
+  const [spent, setSpent] = useState(false)
   useEffect(() => {
     coldStart = false
+    setSpent(true)
   }, [])
-  return cold
+  return cold && !spent
 }
 
 // The home-screen app reopens the URL it was added from: iOS bookmarks the page you were on, and
