@@ -10,12 +10,19 @@
 //
 // Shape carries the distinction — one buzz versus two, with a gap long enough to read as separate
 // — because length can't: a phone with a weak or turned-down actuator renders nothing at all below
-// some floor. One tested Android felt a 200ms buzz and nothing at 30ms, so these are far longer
-// than they need to be on a phone that would have managed 30. The cost of overshooting is a buzz
-// that feels slightly heavy; the cost of undershooting is a button that feels dead.
+// some floor. What that floor is came out of the app itself rather than a lab test: with `tick` at
+// a single 80ms and `double` at 60-90-60, the tested Android felt nothing on the up key and only a
+// faint buzz on the down key. A single 80ms pulse is under its floor; 60ms pulses cleared it only
+// by repeating. So every pulse here is now ≥110ms, which is where that phone starts rendering a
+// solid buzz, and the two keys stay apart by count rather than by strength.
+//
+// The cost of overshooting is a buzz that feels slightly heavy under a counting thumb; the cost of
+// undershooting is a button that feels dead. Prefer heavy.
 const PATTERNS = {
-  tick: [80],
-  double: [60, 90, 60],
+  // Gap of 100ms: an ERM motor needs most of that just to spin down, and anything tighter smears
+  // the two pulses into one long buzz — which would make `double` indistinguishable from `tick`.
+  tick: [140],
+  double: [110, 100, 110],
 } as const
 
 export type HapticShape = keyof typeof PATTERNS
