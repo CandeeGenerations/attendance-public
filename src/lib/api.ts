@@ -13,9 +13,16 @@ export class ApiError extends Error {
   }
 }
 
+// A wifi handover can leave a request hanging with neither a response nor an error. Without a
+// deadline the outbox's single-flight guard stays shut behind that socket and nothing drains until
+// the OS finally gives up — long enough to lose a service. Aborting is safe: the entry carries an
+// idempotency key, so a request that did land is answered, not re-counted, on the retry.
+const TIMEOUT_MS = 12_000
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: {'Content-Type': 'application/json'},
+    signal: AbortSignal.timeout(TIMEOUT_MS),
     ...options,
   })
   if (!res.ok) {
@@ -62,19 +69,35 @@ export const fetchSession = (token: string) => request<Session>(`/${enc(token)}`
 // Every record for a week in one request — the poll that keeps a second device current.
 export const fetchWeek = (token: string, weekStart: string) => request<Week>(`/${enc(token)}/week/${enc(weekStart)}`)
 
+// `editId` makes a write safe to repeat. Delivery is at-least-once — a dropped response looks
+// exactly like a dropped request — so the server records the id and answers a repeat instead of
+// applying it twice (ADR-0034). `duplicate` says which of the two happened; either way the values
+// coming back are the record as it now stands.
+export interface SaveResult extends RecordValue {
+  saved: true
+  duplicate: boolean
+}
+
 // A Correction: typed values that replace both fields.
 export const saveCorrection = (
   token: string,
-  data: {serviceTimeId: number; date: string; attendance: number | null; streaming: number | null},
-) => request<RecordValue & {saved: true}>(`/${enc(token)}/record`, {method: 'POST', body: JSON.stringify(data)})
+  data: {editId: string; serviceTimeId: number; date: string; attendance: number | null; streaming: number | null},
+) => request<SaveResult>(`/${enc(token)}/record`, {method: 'POST', body: JSON.stringify(data)})
 
 // A Tally: an adjustment to one field, carrying the moment it was tapped so the server can tell it
 // from a count that has since been declared outright (ADR-0027).
 export const saveTally = (
   token: string,
-  data: {serviceTimeId: number; date: string; field: 'attendance' | 'streaming'; adjustment: number; tappedAt: string},
+  data: {
+    editId: string
+    serviceTimeId: number
+    date: string
+    field: 'attendance' | 'streaming'
+    adjustment: number
+    tappedAt: string
+  },
 ) =>
-  request<RecordValue & {applied: boolean; saved: true}>(`/${enc(token)}/record`, {
+  request<SaveResult & {applied: boolean}>(`/${enc(token)}/record`, {
     method: 'POST',
     body: JSON.stringify(data),
   })
