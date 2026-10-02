@@ -29,6 +29,18 @@ function scrubEvent<T extends Sentry.Event>(event: T): T {
   return event
 }
 
+type StreamedSpan = Parameters<NonNullable<Sentry.BrowserOptions['beforeSendSpan']>>[0]
+
+// v11 streams spans by default, which bypasses beforeSendTransaction, so URLs reach Sentry as
+// span names and attributes instead. Apply the same redaction there.
+function scrubSpan(span: StreamedSpan): StreamedSpan {
+  span.name = redact(span.name) ?? span.name
+  for (const [key, value] of Object.entries(span.attributes)) {
+    if (typeof value === 'string') span.attributes[key] = redact(value)
+  }
+  return span
+}
+
 export function initSentry(): void {
   if (!dsn) return
   Sentry.init({
@@ -36,10 +48,16 @@ export function initSentry(): void {
     environment,
     release,
     tracesSampleRate: 1.0,
-    sendDefaultPii: false,
+    // v11 collects all of these by default; keep the v10 `sendDefaultPii: false` behavior.
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+    },
     ignoreErrors: ['AbortError', 'Unauthorized'],
     beforeSend: scrubEvent,
-    beforeSendTransaction: scrubEvent,
+    beforeSendSpan: scrubSpan,
   })
 }
 
